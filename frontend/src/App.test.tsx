@@ -295,4 +295,29 @@ describe('CivicBridge analysis flow', () => {
       screen.getAllByText(/preserved it instead of choosing a value/i).length,
     ).toBeGreaterThan(0)
   })
+
+  it('allows answering the priority missing question inline in One Detail to Add', async () => {
+    const user = userEvent.setup()
+    fetchMock.mockResolvedValueOnce(jsonResponse(SAMPLE_ANALYSIS))
+    render(<App />)
+
+    await usePotholeExample(user)
+    await submit(user)
+
+    expect(
+      await screen.findByRole('heading', { name: 'One detail to add' }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('When did you first notice it?')).toBeInTheDocument()
+
+    const inlineInput = screen.getByRole('textbox', {
+      name: 'Answer for First observed',
+    })
+    await user.type(inlineInput, 'Three days ago after rain')
+
+    expect(screen.getByText('Added to draft')).toBeInTheDocument()
+    expect(
+      screen.getByLabelText('Frontend-only review draft text'),
+    ).toHaveTextContent('Three days ago after rain')
+  })
 })
+

@@ -4,7 +4,6 @@ import {
   CATEGORY_LABELS,
   CHANNEL_LABELS,
   FIELD_LABELS,
-  PRIORITY_META,
   REVIEW_SEVERITY_META,
   SEVERITY_META,
   formatConfidence,
@@ -17,6 +16,7 @@ import {
   type FieldKey,
 } from '../services/analysisApi'
 import { ExtractedFieldCard } from './ExtractedFieldCard'
+import { OneThingToAdd } from './OneThingToAdd'
 import { ReviewDraft } from './ReviewDraft'
 
 type AnalysisResultsProps = {
@@ -27,12 +27,35 @@ type AnalysisResultsProps = {
   onResetField: (key: FieldKey) => void
 }
 
-function EmptyListNote({ children }: { children: string }) {
-  return (
-    <p className="rounded-xl border border-dashed border-line bg-paper/45 px-4 py-3 text-sm text-ink-soft">
-      {children}
-    </p>
-  )
+function getCompletenessStatus(analysis: AnalysisResponse): {
+  label: string
+  badgeClass: string
+} {
+  if (analysis.readiness.blocking_gaps.length > 0) {
+    const hasLocationGap = analysis.readiness.blocking_gaps.some((k) =>
+      k.startsWith('location.'),
+    )
+    if (hasLocationGap) {
+      return {
+        label: 'Needs location',
+        badgeClass: 'border-red-200 bg-red-50 text-red-800',
+      }
+    }
+    return {
+      label: 'Needs details',
+      badgeClass: 'border-amber/20 bg-amber-soft text-amber',
+    }
+  }
+  if (analysis.readiness.conflict_cap_applied) {
+    return {
+      label: 'Needs conflict check',
+      badgeClass: 'border-red-200 bg-red-50 text-red-800',
+    }
+  }
+  return {
+    label: 'Ready to review',
+    badgeClass: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+  }
 }
 
 export function AnalysisResults({
@@ -44,6 +67,7 @@ export function AnalysisResults({
 }: AnalysisResultsProps) {
   const headingRef = useRef<HTMLHeadingElement>(null)
   const severity = SEVERITY_META[analysis.issue.severity_suggestion]
+  const status = getCompletenessStatus(analysis)
 
   useEffect(() => {
     headingRef.current?.focus({ preventScroll: true })
@@ -53,12 +77,16 @@ export function AnalysisResults({
     })
   }, [])
 
+  const visibleSteps = analysis.suggested_next_steps.slice(0, 3)
+  const remainingSteps = analysis.suggested_next_steps.slice(3)
+
   return (
-    <section id="results" aria-labelledby="analysis-title" className="scroll-mt-8">
+    <section id="results" aria-labelledby="analysis-title" className="scroll-mt-8 space-y-6">
+      {/* 1. Emergency Warning (always outside collapsible) */}
       {analysis.emergency.triggered ? (
         <div
           role="alert"
-          className="mb-6 rounded-2xl border-2 border-red-300 bg-red-50 p-5 sm:p-6"
+          className="rounded-2xl border-2 border-red-300 bg-red-50 p-5 sm:p-6"
         >
           <div className="flex items-start gap-3">
             <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-red-100 text-red-800">
@@ -99,249 +127,289 @@ export function AnalysisResults({
         </div>
       ) : null}
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start">
-        <div className="space-y-6">
-          <header className="rounded-2xl border border-line bg-surface p-5 shadow-card sm:p-7">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded-full border border-accent/20 bg-accent-soft px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-accent-deep">
-                {CATEGORY_LABELS[analysis.issue.category]}
-              </span>
-              <span className="rounded-full border border-amber/20 bg-amber-soft px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-amber">
-                AI-assisted draft
-              </span>
-            </div>
-
-            <h2
-              ref={headingRef}
-              id="analysis-title"
-              tabIndex={-1}
-              className="mt-4 font-display text-3xl leading-tight tracking-tight focus:outline-none sm:text-4xl"
+      {/* 2. Compact Results Summary */}
+      <header className="rounded-2xl border border-line bg-surface p-5 shadow-card sm:p-7">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full border border-accent/20 bg-accent-soft px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-accent-deep">
+              {CATEGORY_LABELS[analysis.issue.category]}
+            </span>
+            <span className="rounded-full border border-amber/20 bg-amber-soft px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-amber">
+              AI-assisted draft
+            </span>
+            <span
+              className={`rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] ${status.badgeClass}`}
             >
-              {analysis.issue.title}
-            </h2>
-            <p className="mt-3 max-w-3xl text-sm leading-relaxed text-ink-soft sm:text-base">
-              {analysis.issue.summary}
-            </p>
+              {status.label}
+            </span>
+          </div>
 
-            <div className={`mt-5 rounded-xl border p-4 ${severity.panelClass}`}>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs font-semibold uppercase tracking-[0.12em]">
-                  Suggested severity
-                </span>
-                <span
-                  className={`rounded-full border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] ${severity.badgeClass}`}
-                >
-                  {severity.label}
-                </span>
-              </div>
-              <p className="mt-2 text-sm leading-relaxed">
-                {analysis.issue.severity_rationale}
-              </p>
-              <p className="mt-2 text-[11px] leading-relaxed opacity-80">
-                A tentative AI suggestion. It is not an official severity
-                assessment.
-              </p>
-            </div>
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-medium text-ink-soft">
+              {analysis.readiness.label}:
+            </span>
+            <span className="font-display text-2xl tracking-tight text-accent-deep sm:text-3xl">
+              {analysis.readiness.score}%
+            </span>
+          </div>
+        </div>
 
-            <p className="mt-5 border-t border-line pt-4 text-xs leading-relaxed text-ink-soft">
-              {analysis.meta.disclaimer}
-            </p>
-          </header>
+        <h2
+          ref={headingRef}
+          id="analysis-title"
+          tabIndex={-1}
+          className="mt-4 font-display text-3xl leading-tight tracking-tight focus:outline-none sm:text-4xl"
+        >
+          {analysis.issue.title}
+        </h2>
+        <p className="mt-3 text-sm leading-relaxed text-ink-soft sm:text-base">
+          {analysis.issue.summary}
+        </p>
 
-          <section
-            aria-labelledby="fields-title"
-            className="rounded-2xl border border-line bg-surface p-5 shadow-card sm:p-6"
+        {/* Small report completeness progress */}
+        <div className="mt-4">
+          <div
+            role="progressbar"
+            aria-labelledby="readiness-summary-label"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={analysis.readiness.score}
+            className="h-2 overflow-hidden rounded-full bg-paper-deep"
           >
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h3 id="fields-title" className="font-display text-xl tracking-tight">
-                  Extracted fields
-                </h3>
-                <p className="mt-1 max-w-2xl text-xs leading-relaxed text-ink-soft">
-                  Compare each label with your complaint, correct the value, and
-                  tick “Reviewed by me” when it is ready. Edits are kept in this
-                  browser only.
-                </p>
-              </div>
+            <div
+              className="h-full rounded-full bg-accent transition-[width]"
+              style={{ width: `${analysis.readiness.score}%` }}
+            />
+          </div>
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-ink-soft">
+            <span id="readiness-summary-label">{analysis.readiness.note}</span>
+            <span>
+              {analysis.readiness.filled_weight} of{' '}
+              {analysis.readiness.total_weight} weighted points
+            </span>
+          </div>
+          {analysis.readiness.conflict_cap_applied ? (
+            <p className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-[11px] leading-relaxed text-red-900">
+              Capped at 80 while conflicting information remains.
+            </p>
+          ) : null}
+          {analysis.readiness.blocking_gaps.length > 0 ? (
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] font-semibold text-ink-soft">
+                Blocking gaps:
+              </span>
+              {analysis.readiness.blocking_gaps.map((key) => (
+                <span
+                  key={key}
+                  className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-medium text-red-800"
+                >
+                  {FIELD_LABELS[key]}
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </div>
+
+        {/* Severity pill */}
+        <div className={`mt-5 rounded-xl border p-4 ${severity.panelClass}`}>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-semibold uppercase tracking-[0.12em]">
+              Suggested severity
+            </span>
+            <span
+              className={`rounded-full border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] ${severity.badgeClass}`}
+            >
+              {severity.label}
+            </span>
+          </div>
+          <p className="mt-2 text-sm leading-relaxed">
+            {analysis.issue.severity_rationale}
+          </p>
+        </div>
+
+        <p className="mt-4 border-t border-line pt-3 text-xs leading-relaxed text-ink-soft">
+          {analysis.meta.disclaimer}
+        </p>
+      </header>
+
+      {/* 3. "One thing to add" (Primary missing question with inline input) */}
+      <OneThingToAdd
+        missing={analysis.missing_information}
+        readiness={analysis.readiness}
+        drafts={drafts}
+        onFieldChange={onFieldChange}
+      />
+
+      {/* 4. Progressive Disclosure: Collapsible "Review details" section */}
+      <details
+        aria-labelledby="fields-title"
+        className="group rounded-2xl border border-line bg-surface p-5 shadow-card sm:p-6"
+      >
+        <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 focus:outline-none">
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 id="fields-title" className="font-display text-xl tracking-tight">
+                Review details
+              </h3>
               <span className="rounded-full border border-line bg-paper-deep px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-soft">
                 {FIELD_KEYS.length} fields
               </span>
             </div>
+            <p className="mt-1 text-xs text-ink-soft">
+              Click any field to expand, review evidence quotes, or edit values.
+            </p>
+          </div>
 
-            <div className="mt-4 space-y-3">
-              {FIELD_KEYS.map((key) => (
-                <ExtractedFieldCard
-                  key={key}
-                  field={analysis.fields[key]}
-                  draft={drafts[key]}
-                  onChange={(value) => onFieldChange(key, value)}
-                  onToggleReviewed={() => onToggleFieldReviewed(key)}
-                  onReset={() => onResetField(key)}
-                />
-              ))}
-            </div>
-          </section>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-accent-deep group-open:hidden">
+              Show all fields
+            </span>
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              className="h-4 w-4 text-ink-soft transition-transform group-open:rotate-180"
+              aria-hidden="true"
+            >
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </div>
+        </summary>
 
-          <section
-            aria-labelledby="inferences-title"
-            className="rounded-2xl border border-line bg-surface p-5 shadow-card sm:p-6"
-          >
-            <h3 id="inferences-title" className="font-display text-xl tracking-tight">
-              AI inferences
-            </h3>
-            <p className="mt-1 text-xs leading-relaxed text-ink-soft">
+        <div className="mt-4 space-y-2.5 border-t border-line/60 pt-4">
+          {FIELD_KEYS.map((key) => (
+            <ExtractedFieldCard
+              key={key}
+              field={analysis.fields[key]}
+              draft={drafts[key]}
+              onChange={(value) => onFieldChange(key, value)}
+              onToggleReviewed={() => onToggleFieldReviewed(key)}
+              onReset={() => onResetField(key)}
+            />
+          ))}
+        </div>
+
+        {/* AI Inferences (shown cleanly inside Review Details if present) */}
+        {analysis.inferences.length > 0 ? (
+          <div className="mt-6 border-t border-line/60 pt-5">
+            <h4 className="font-display text-lg tracking-tight">AI inferences</h4>
+            <p className="mt-1 text-xs text-ink-soft">
               Interpretations that were not stated word-for-word in your complaint.
             </p>
+            <ul className="mt-3 space-y-2.5">
+              {analysis.inferences.map((inference, index) => (
+                <li
+                  key={`${inference.statement}-${index}`}
+                  className="rounded-xl border border-amber/20 bg-amber-soft/40 p-3.5"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="rounded-full border border-amber/20 bg-surface/60 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-amber">
+                      Inference
+                    </span>
+                    <span className="text-[11px] text-ink-soft">
+                      {formatConfidence(inference.confidence)}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-sm font-medium text-ink">
+                    {inference.statement}
+                  </p>
+                  <p className="mt-1.5 text-xs text-ink-soft">
+                    <span className="font-semibold text-ink">Basis:</span>{' '}
+                    {inference.basis}
+                  </p>
+                  <p className="mt-1 text-xs text-ink-soft">
+                    <span className="font-semibold text-ink">Risk if wrong:</span>{' '}
+                    {inference.risk_if_wrong}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
 
-            {analysis.inferences.length === 0 ? (
-              <div className="mt-4">
-                <EmptyListNote>No separate inferences were generated.</EmptyListNote>
-              </div>
-            ) : (
-              <ul className="mt-4 space-y-3">
-                {analysis.inferences.map((inference, index) => (
+        {/* Review Flags (shown cleanly inside Review Details if present) */}
+        {analysis.review_flags.length > 0 ? (
+          <div className="mt-6 border-t border-line/60 pt-5">
+            <h4 className="font-display text-lg tracking-tight">Review flags</h4>
+            <p className="mt-1 text-xs text-ink-soft">
+              Automated checks for conflicts, unverified quotes, and low confidence.
+            </p>
+            <ul className="mt-3 space-y-2.5">
+              {analysis.review_flags.map((flag, index) => {
+                const flagSeverity = REVIEW_SEVERITY_META[flag.severity]
+                return (
                   <li
-                    key={`${inference.statement}-${index}`}
-                    className="rounded-xl border border-amber/20 bg-amber-soft/45 p-4"
+                    key={`${flag.code}-${flag.field_key ?? 'general'}-${index}`}
+                    className={`rounded-xl border p-3.5 ${flagSeverity.panelClass}`}
                   >
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <span className="rounded-full border border-amber/20 bg-surface/60 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-amber">
-                        Inference
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded-full border border-current/20 bg-surface/55 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em]">
+                        {flagSeverity.label}
                       </span>
-                      <span className="text-[11px] text-ink-soft">
-                        {formatConfidence(inference.confidence)}
-                      </span>
+                      {flag.field_key ? (
+                        <span className="text-[11px] font-semibold opacity-90">
+                          {FIELD_LABELS[flag.field_key]}
+                        </span>
+                      ) : null}
                     </div>
-                    <p className="mt-2 text-sm font-medium text-ink">
-                      {inference.statement}
-                    </p>
-                    <p className="mt-2 text-xs leading-relaxed text-ink-soft">
-                      <span className="font-semibold text-ink">Basis:</span>{' '}
-                      {inference.basis}
-                    </p>
-                    <p className="mt-1 text-xs leading-relaxed text-ink-soft">
-                      <span className="font-semibold text-ink">Risk if wrong:</span>{' '}
-                      {inference.risk_if_wrong}
-                    </p>
+                    <p className="mt-1.5 text-xs leading-relaxed">{flag.message}</p>
                   </li>
-                ))}
-              </ul>
-            )}
-          </section>
+                )
+              })}
+            </ul>
+          </div>
+        ) : null}
+      </details>
 
-          <section
-            aria-labelledby="missing-title"
-            className="rounded-2xl border border-line bg-surface p-5 shadow-card sm:p-6"
-          >
-            <h3 id="missing-title" className="font-display text-xl tracking-tight">
-              Missing information
-            </h3>
-            <p className="mt-1 text-xs leading-relaxed text-ink-soft">
-              Questions generated from the category checklist, not invented by the
-              model.
-            </p>
+      {/* 5. Concise Next Steps (max 3 shown, rest collapsed) */}
+      {analysis.suggested_next_steps.length > 0 ? (
+        <section
+          aria-labelledby="steps-title"
+          className="rounded-2xl border border-line bg-surface p-5 shadow-card sm:p-6"
+        >
+          <h3 id="steps-title" className="font-display text-xl tracking-tight">
+            Suggested next steps
+          </h3>
+          <p className="mt-1 text-xs text-ink-soft">
+            Guidance for reporting this issue. CivicBridge AI does not contact
+            agencies on your behalf.
+          </p>
 
-            {analysis.missing_information.length === 0 ? (
-              <div className="mt-4">
-                <EmptyListNote>
-                  The category checklist has no unanswered fields.
-                </EmptyListNote>
-              </div>
-            ) : (
-              <ol className="mt-4 space-y-3">
-                {analysis.missing_information.map((item) => {
-                  const priority = PRIORITY_META[item.priority]
-                  return (
-                    <li
-                      key={item.key}
-                      className="rounded-xl border border-line bg-paper/45 p-4"
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="text-sm font-semibold text-ink">{item.label}</p>
-                        <span
-                          className={`rounded-full border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] ${priority.badgeClass}`}
-                        >
-                          {priority.label}
-                        </span>
-                      </div>
-                      <p className="mt-2 text-sm text-ink">{item.question}</p>
-                      <p className="mt-1 text-xs leading-relaxed text-ink-soft">
-                        {item.reason}
-                      </p>
-                    </li>
-                  )
-                })}
-              </ol>
-            )}
-          </section>
+          <ol className="mt-4 space-y-3">
+            {visibleSteps.map((step) => (
+              <li key={step.order} className="flex gap-3">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent-soft text-xs font-semibold text-accent-deep">
+                  {step.order}
+                </span>
+                <div>
+                  <p className="text-sm leading-relaxed text-ink">{step.action}</p>
+                  <p className="mt-0.5 text-[11px] text-ink-soft">
+                    {CHANNEL_LABELS[step.channel]}
+                    {step.is_generic_guidance ? ' · Generic guidance' : ''}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ol>
 
-          <section
-            aria-labelledby="flags-title"
-            className="rounded-2xl border border-line bg-surface p-5 shadow-card sm:p-6"
-          >
-            <h3 id="flags-title" className="font-display text-xl tracking-tight">
-              Review flags
-            </h3>
-            <p className="mt-1 text-xs leading-relaxed text-ink-soft">
-              Deterministic checks for conflicts, unverified quotes and low-confidence
-              inferences.
-            </p>
-
-            {analysis.review_flags.length === 0 ? (
-              <div className="mt-4">
-                <EmptyListNote>
-                  No automated review flags were raised. Continue checking the
-                  fields manually.
-                </EmptyListNote>
-              </div>
-            ) : (
-              <ul className="mt-4 space-y-3">
-                {analysis.review_flags.map((flag, index) => {
-                  const severity = REVIEW_SEVERITY_META[flag.severity]
-                  return (
-                    <li
-                      key={`${flag.code}-${flag.field_key ?? 'general'}-${index}`}
-                      className={`rounded-xl border p-4 ${severity.panelClass}`}
-                    >
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="rounded-full border border-current/20 bg-surface/55 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em]">
-                          {severity.label}
-                        </span>
-                        <span className="font-mono text-[10px] uppercase tracking-[0.08em] opacity-75">
-                          {flag.code}
-                        </span>
-                        {flag.field_key ? (
-                          <span className="text-[11px] font-medium opacity-80">
-                            {FIELD_LABELS[flag.field_key]}
-                          </span>
-                        ) : null}
-                      </div>
-                      <p className="mt-2 text-sm leading-relaxed">{flag.message}</p>
-                    </li>
-                  )
-                })}
-              </ul>
-            )}
-          </section>
-
-          <section
-            aria-labelledby="steps-title"
-            className="rounded-2xl border border-line bg-surface p-5 shadow-card sm:p-6"
-          >
-            <h3 id="steps-title" className="font-display text-xl tracking-tight">
-              Suggested next steps
-            </h3>
-            <p className="mt-1 text-xs leading-relaxed text-ink-soft">
-              Generic guidance only. CivicBridge AI does not contact agencies for
-              you.
-            </p>
-            {analysis.suggested_next_steps.length === 0 ? (
-              <div className="mt-4">
-                <EmptyListNote>No next steps were generated.</EmptyListNote>
-              </div>
-            ) : (
-              <ol className="mt-4 space-y-3">
-                {analysis.suggested_next_steps.map((step) => (
+          {remainingSteps.length > 0 ? (
+            <details className="group mt-4 border-t border-line/60 pt-3">
+              <summary className="flex cursor-pointer list-none items-center justify-between text-xs font-semibold text-accent-deep hover:text-accent focus:outline-none">
+                <span>Show {remainingSteps.length} more steps</span>
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  className="h-4 w-4 transition-transform group-open:rotate-180"
+                  aria-hidden="true"
+                >
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </summary>
+              <ol start={4} className="mt-3 space-y-3">
+                {remainingSteps.map((step) => (
                   <li key={step.order} className="flex gap-3">
                     <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent-soft text-xs font-semibold text-accent-deep">
                       {step.order}
@@ -350,7 +418,7 @@ export function AnalysisResults({
                       <p className="text-sm leading-relaxed text-ink">
                         {step.action}
                       </p>
-                      <p className="mt-1 text-[11px] text-ink-soft">
+                      <p className="mt-0.5 text-[11px] text-ink-soft">
                         {CHANNEL_LABELS[step.channel]}
                         {step.is_generic_guidance ? ' · Generic guidance' : ''}
                       </p>
@@ -358,130 +426,58 @@ export function AnalysisResults({
                   </li>
                 ))}
               </ol>
-            )}
-          </section>
+            </details>
+          ) : null}
+        </section>
+      ) : null}
 
-          <ReviewDraft analysis={analysis} drafts={drafts} />
-        </div>
+      {/* 6. Report Draft Preview (collapsed by default) */}
+      <ReviewDraft analysis={analysis} drafts={drafts} />
 
-        <aside className="space-y-6 lg:sticky lg:top-6">
-          <section
-            aria-labelledby="readiness-title"
-            className="rounded-2xl border border-line bg-surface p-5 shadow-card"
+      {/* 7. Technical Details (collapsed by default) */}
+      <details className="group rounded-2xl border border-line bg-surface p-4 shadow-card">
+        <summary className="flex cursor-pointer list-none items-center justify-between text-xs font-semibold uppercase tracking-[0.1em] text-ink-soft hover:text-ink focus:outline-none">
+          <span>Technical & model details</span>
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            className="h-4 w-4 transition-transform group-open:rotate-180"
+            aria-hidden="true"
           >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h3 id="readiness-title" className="font-display text-lg tracking-tight">
-                  {analysis.readiness.label}
-                </h3>
-                <p className="mt-1 text-[11px] uppercase tracking-[0.1em] text-ink-soft">
-                  Weighted completeness
-                </p>
-              </div>
-              <span className="font-display text-3xl tracking-tight text-accent-deep">
-                {analysis.readiness.score}%
-              </span>
-            </div>
-
-            <div
-              role="progressbar"
-              aria-labelledby="readiness-title"
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-valuenow={analysis.readiness.score}
-              className="mt-4 h-2.5 overflow-hidden rounded-full bg-paper-deep"
-            >
-              <div
-                className="h-full rounded-full bg-accent transition-[width]"
-                style={{ width: `${analysis.readiness.score}%` }}
-              />
-            </div>
-
-            <p className="mt-3 text-xs leading-relaxed text-ink-soft">
-              {analysis.readiness.note}
-            </p>
-            <p className="mt-2 text-[11px] text-ink-soft">
-              {analysis.readiness.filled_weight} of {analysis.readiness.total_weight}{' '}
-              weighted points filled.
-            </p>
-            {analysis.readiness.conflict_cap_applied ? (
-              <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[11px] leading-relaxed text-red-900">
-                Capped at 80 while conflicting information remains.
-              </p>
-            ) : null}
-            {analysis.readiness.blocking_gaps.length > 0 ? (
-              <div className="mt-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-soft">
-                  Blocking gaps
-                </p>
-                <ul className="mt-2 flex flex-wrap gap-1.5">
-                  {analysis.readiness.blocking_gaps.map((key) => (
-                    <li
-                      key={key}
-                      className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-medium text-red-800"
-                    >
-                      {FIELD_LABELS[key]}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-          </section>
-
-          <section
-            aria-labelledby="analysis-details-title"
-            className="rounded-2xl border border-line bg-surface p-5 shadow-card"
-          >
-            <h3
-              id="analysis-details-title"
-              className="font-display text-lg tracking-tight"
-            >
-              Analysis details
-            </h3>
-            <dl className="mt-3 space-y-2 text-xs">
-              <div className="flex justify-between gap-3">
-                <dt className="text-ink-soft">Model</dt>
-                <dd className="text-right font-medium text-ink">
-                  {analysis.meta.model}
-                </dd>
-              </div>
-              <div className="flex justify-between gap-3">
-                <dt className="text-ink-soft">Prompt</dt>
-                <dd className="text-right font-medium text-ink">
-                  {analysis.meta.prompt_version}
-                </dd>
-              </div>
-              <div className="flex justify-between gap-3">
-                <dt className="text-ink-soft">Language</dt>
-                <dd className="text-right font-medium text-ink">
-                  {analysis.input_language}
-                </dd>
-              </div>
-              <div className="flex justify-between gap-3">
-                <dt className="text-ink-soft">Generated</dt>
-                <dd className="text-right font-medium text-ink">
-                  {formatTimestamp(analysis.meta.generated_at)}
-                </dd>
-              </div>
-            </dl>
-            <p className="mt-3 border-t border-line pt-3 text-[10px] leading-relaxed text-ink-soft">
-              Request <span className="font-mono">{analysis.request_id}</span>
-            </p>
-          </section>
-
-          <section className="rounded-2xl border border-accent/20 bg-accent-soft/45 p-5">
-            <h3 className="text-sm font-semibold text-accent-deep">
-              What this review is not
-            </h3>
-            <ul className="mt-2 space-y-2 text-xs leading-relaxed text-ink-soft">
-              <li>Not an official verification of your complaint.</li>
-              <li>Not a route to any government department.</li>
-              <li>Not a submitted report.</li>
-              <li>Not a safety assessment or emergency response.</li>
-            </ul>
-          </section>
-        </aside>
-      </div>
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+        </summary>
+        <dl className="mt-3 grid gap-2 border-t border-line/60 pt-3 text-xs sm:grid-cols-2">
+          <div className="flex justify-between gap-2">
+            <dt className="text-ink-soft">Model</dt>
+            <dd className="font-medium text-ink">{analysis.meta.model}</dd>
+          </div>
+          <div className="flex justify-between gap-2">
+            <dt className="text-ink-soft">Prompt version</dt>
+            <dd className="font-medium text-ink">
+              {analysis.meta.prompt_version}
+            </dd>
+          </div>
+          <div className="flex justify-between gap-2">
+            <dt className="text-ink-soft">Language</dt>
+            <dd className="font-medium text-ink">{analysis.input_language}</dd>
+          </div>
+          <div className="flex justify-between gap-2">
+            <dt className="text-ink-soft">Generated</dt>
+            <dd className="font-medium text-ink">
+              {formatTimestamp(analysis.meta.generated_at)}
+            </dd>
+          </div>
+          <div className="flex justify-between gap-2 sm:col-span-2">
+            <dt className="text-ink-soft">Request ID</dt>
+            <dd className="font-mono text-[11px] text-ink">
+              {analysis.request_id}
+            </dd>
+          </div>
+        </dl>
+      </details>
     </section>
   )
 }
