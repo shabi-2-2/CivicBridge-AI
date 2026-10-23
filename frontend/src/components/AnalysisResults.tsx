@@ -17,6 +17,7 @@ import {
 } from '../services/analysisApi'
 import { ExtractedFieldCard } from './ExtractedFieldCard'
 import { OneThingToAdd } from './OneThingToAdd'
+import { ReportPreview } from './ReportPreview'
 import { ReviewDraft } from './ReviewDraft'
 
 type AnalysisResultsProps = {
@@ -431,7 +432,10 @@ export function AnalysisResults({
         </section>
       ) : null}
 
-      {/* 6. Report Draft Preview (collapsed by default) */}
+      {/* 6. Generated report preview (collapsed by default, built on request) */}
+      <ReportPreview analysis={analysis} drafts={drafts} />
+
+      {/* 6b. Frontend-only text draft (collapsed by default) */}
       <ReviewDraft analysis={analysis} drafts={drafts} />
 
       {/* 7. Technical Details (collapsed by default) */}

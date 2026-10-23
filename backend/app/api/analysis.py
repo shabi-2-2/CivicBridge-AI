@@ -7,9 +7,11 @@ from fastapi import APIRouter, Depends, Request
 from app.core.config import Settings, get_settings
 from app.core.errors import GeminiNotConfigured
 from app.schemas.analysis import AnalysisResponse, AnalyzeRequest, ErrorResponse
+from app.services.report import ReportResponse, ReportRequest
 from app.services.analysis import AnalysisService
 from app.services.gemini import DEFAULT_MODEL, GeminiClient
 from app.services.prompt import PROMPT_VERSION
+from app.services.report import generate_report
 
 logger = logging.getLogger(__name__)
 
@@ -76,3 +78,60 @@ def analyze(
         int((time.perf_counter() - started) * 1000),
     )
     return response
+
+
+@router.post(
+    "/report",
+    response_model=ReportResponse,
+    summary="Generate a human-reviewed report",
+    description=(
+        "Transforms an analyzed civic complaint draft into a deterministic "
+        "Markdown and plain-text report. User edits, missing-field answers, "
+        "and derived fields are applied server-side. No Gemini call is made "
+        "just to format the report."
+    ),
+    responses={
+        400: {"model": ErrorResponse, "description": "Invalid or tampered request payload."},
+        422: {"model": ErrorResponse, "description": "Validation failed on server side."},
+    },
+)
+def generate_report_endpoint(
+    request: ReportRequest,
+    api_request: Request,
+) -> ReportResponse:
+    """Generate a human-reviewed report from an analyzed draft."""
+    report_id = getattr(api_request.state, "request_id", uuid4().hex)
+    try:
+        result = generate_report(request)
+        logger.info(
+            "report generated request_id=%s report_request_id=%s blocking=%s",
+            report_id,
+            result.request_id,
+            result.blocking_remaining,
+        )
+        return result
+    except ValueError as exc:
+        from fastapi.responses import JSONResponse
+        from app.schemas.analysis import ErrorDetail, ErrorResponse, ValidationIssue
+
+        request_id = getattr(api_request.state, "request_id", "")
+        details: list[ValidationIssue] = [
+            ValidationIssue(field="payload", message=str(exc))
+        ]
+        error = ErrorDetail(
+            code="INVALID_INPUT",
+            message=str(exc),
+            request_id=request_id,
+            retryable=False,
+            details=details,
+        )
+        return JSONResponse(status_code=400, content=ErrorResponse(error=error).model_dump(mode="json"))
+    except Exception as exc:  # pragma: no cover - defensive
+        request_id = getattr(api_request.state, "request_id", "")
+        logger.error(
+            "report generation failed request_id=%s error=%s",
+            request_id,
+            type(exc).__name__,
+        )
+        raise exc
+
