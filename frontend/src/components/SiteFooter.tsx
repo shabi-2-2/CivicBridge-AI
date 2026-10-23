@@ -8,7 +8,7 @@ export function SiteFooter() {
           them to an agency, or submit them on your behalf. Always review a draft
           before sharing it.
         </p>
-        <p className="shrink-0">Societal Benefit challenge · Phase 1</p>
+        <p className="shrink-0">Societal Benefit challenge · Phase 3</p>
       </div>
     </footer>
   )

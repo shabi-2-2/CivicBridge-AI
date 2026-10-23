@@ -26,8 +26,8 @@ export function SiteHeader() {
         </div>
       </div>
 
-      <span className="shrink-0 rounded-full border border-line bg-surface/70 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-soft">
-        Phase 1 · Preview
+      <span className="shrink-0 rounded-full border border-accent/20 bg-accent-soft/70 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-accent-deep">
+        Phase 3 · Review
       </span>
     </header>
   )

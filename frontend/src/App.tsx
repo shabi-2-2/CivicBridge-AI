@@ -1,9 +1,23 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
-import { IssueForm } from './components/IssueForm'
-import { ResultsPlaceholder } from './components/ResultsPlaceholder'
+import { AnalysisEmptyState } from './components/AnalysisEmptyState'
+import { AnalysisError } from './components/AnalysisError'
+import { AnalysisLoading } from './components/AnalysisLoading'
+import { AnalysisResults } from './components/AnalysisResults'
+import {
+  IssueForm,
+  MAX_LOCATION_LENGTH,
+  MIN_COMPLAINT_LENGTH,
+} from './components/IssueForm'
 import { SiteFooter } from './components/SiteFooter'
 import { SiteHeader } from './components/SiteHeader'
+import { createFieldDrafts, type FieldDrafts } from './lib/review'
+import {
+  AnalysisApiError,
+  analyzeComplaint,
+  type AnalysisResponse,
+  type FieldKey,
+} from './services/analysisApi'
 
 const STEPS = [
   {
@@ -14,22 +28,138 @@ const STEPS = [
   {
     number: '02',
     title: 'Check the evidence',
-    body: 'Separate what you said from what the AI inferred, and fill the gaps.',
+    body: 'Compare facts, AI inferences, conflicts and missing details, then edit.',
   },
   {
     number: '03',
-    title: 'Send it yourself',
-    body: 'Export a clean draft, then choose the official channel.',
+    title: 'Choose the channel',
+    body: 'Review a clean draft, then send it yourself through an official channel.',
   },
 ]
+
+type AnalysisState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'error'; error: AnalysisApiError }
+  | { status: 'success'; analysis: AnalysisResponse; drafts: FieldDrafts }
+
+function validateComplaint(text: string, location: string): string | null {
+  const trimmed = text.trim()
+  if (trimmed.length === 0) {
+    return 'Describe the civic issue before analyzing.'
+  }
+  if (trimmed.length < MIN_COMPLAINT_LENGTH) {
+    const needed = MIN_COMPLAINT_LENGTH - trimmed.length
+    return `Add ${needed} more character${needed === 1 ? '' : 's'} before analyzing.`
+  }
+  if (text.length > 2000) {
+    return 'The complaint must be 2000 characters or fewer.'
+  }
+  if (location.trim().length > MAX_LOCATION_LENGTH) {
+    return `The location hint must be ${MAX_LOCATION_LENGTH} characters or fewer.`
+  }
+  return null
+}
 
 export default function App() {
   const [issue, setIssue] = useState('')
   const [location, setLocation] = useState('')
-  const [hasSubmitted, setHasSubmitted] = useState(false)
+  const [validationMessage, setValidationMessage] = useState<string | null>(null)
+  const [analysisState, setAnalysisState] = useState<AnalysisState>({
+    status: 'idle',
+  })
+  const inFlightRef = useRef(false)
 
-  function handleAnalyze() {
-    setHasSubmitted(true)
+  const isLoading = analysisState.status === 'loading'
+
+  function handleIssueChange(value: string) {
+    setIssue(value)
+    if (validationMessage) setValidationMessage(null)
+  }
+
+  function handleLocationChange(value: string) {
+    setLocation(value)
+    if (validationMessage) setValidationMessage(null)
+  }
+
+  async function handleAnalyze() {
+    if (inFlightRef.current) return
+
+    const message = validateComplaint(issue, location)
+    if (message) {
+      setValidationMessage(message)
+      return
+    }
+
+    setValidationMessage(null)
+    inFlightRef.current = true
+    setAnalysisState({ status: 'loading' })
+
+    try {
+      const analysis = await analyzeComplaint({
+        text: issue.trim(),
+        location_hint: location.trim() || null,
+      })
+      setAnalysisState({
+        status: 'success',
+        analysis,
+        drafts: createFieldDrafts(analysis),
+      })
+    } catch (error) {
+      const apiError =
+        error instanceof AnalysisApiError
+          ? error
+          : new AnalysisApiError({
+              code: 'UNKNOWN',
+              retryable: true,
+              message:
+                'The analysis could not be completed. No draft was created. Please try again.',
+            })
+      setAnalysisState({ status: 'error', error: apiError })
+    } finally {
+      inFlightRef.current = false
+    }
+  }
+
+  function updateFieldDraft(
+    key: FieldKey,
+    update: (draft: FieldDrafts[FieldKey], originalValue: string) => FieldDrafts[FieldKey],
+  ) {
+    setAnalysisState((previous) => {
+      if (previous.status !== 'success') return previous
+      const originalValue = previous.analysis.fields[key].value ?? ''
+      return {
+        ...previous,
+        drafts: {
+          ...previous.drafts,
+          [key]: update(previous.drafts[key], originalValue),
+        },
+      }
+    })
+  }
+
+  function handleFieldChange(key: FieldKey, value: string) {
+    updateFieldDraft(key, (draft, originalValue) => ({
+      ...draft,
+      value,
+      edited: value !== originalValue,
+      confirmedByUser: true,
+    }))
+  }
+
+  function handleToggleFieldReviewed(key: FieldKey) {
+    updateFieldDraft(key, (draft) => ({
+      ...draft,
+      confirmedByUser: !draft.confirmedByUser,
+    }))
+  }
+
+  function handleResetField(key: FieldKey) {
+    updateFieldDraft(key, (_draft, originalValue) => ({
+      value: originalValue,
+      edited: false,
+      confirmedByUser: false,
+    }))
   }
 
   return (
@@ -51,7 +181,7 @@ export default function App() {
               </p>
 
               <h1 className="font-display text-[2.75rem] leading-[1.04] tracking-[-0.02em] text-ink sm:text-5xl lg:text-[3.8rem]">
-                From a messy complaint to a report you can send.
+                From a messy complaint to a review you can trust yourself with.
               </h1>
 
               <p className="mt-6 max-w-xl text-base leading-relaxed text-ink-soft sm:text-lg">
@@ -102,15 +232,33 @@ export default function App() {
             </div>
 
             <IssueForm
-              issue={issue}
+              text={issue}
               location={location}
-              onIssueChange={(value) => setIssue(value)}
-              onLocationChange={(value) => setLocation(value)}
-              onAnalyze={handleAnalyze}
+              onTextChange={handleIssueChange}
+              onLocationChange={handleLocationChange}
+              onSubmit={handleAnalyze}
+              isLoading={isLoading}
+              validationMessage={validationMessage}
             />
           </section>
 
-          <ResultsPlaceholder active={hasSubmitted} />
+          {analysisState.status === 'loading' ? <AnalysisLoading /> : null}
+          {analysisState.status === 'error' ? (
+            <AnalysisError
+              error={analysisState.error}
+              onRetry={handleAnalyze}
+            />
+          ) : null}
+          {analysisState.status === 'success' ? (
+            <AnalysisResults
+              analysis={analysisState.analysis}
+              drafts={analysisState.drafts}
+              onFieldChange={handleFieldChange}
+              onToggleFieldReviewed={handleToggleFieldReviewed}
+              onResetField={handleResetField}
+            />
+          ) : null}
+          {analysisState.status === 'idle' ? <AnalysisEmptyState /> : null}
         </main>
 
         <SiteFooter />

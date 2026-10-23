@@ -8,22 +8,24 @@
     "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia,
     serif;
 
-  --color-paper: #f8f5ee;
-  --color-paper-deep: #efe9dc;
-  --color-surface: #fffdf8;
-  --color-ink: #17231f;
-  --color-ink-soft: #53645d;
-  --color-line: #e4ddce;
-  --color-accent: #0f5f57;
-  --color-accent-deep: #0b463f;
-  --color-accent-soft: #dfeee8;
-  --color-amber: #a9681f;
-  --color-amber-soft: #f6e8d2;
+  --color-paper: #f5f7f6;
+  --color-paper-deep: #e8eeeb;
+  --color-surface: #ffffff;
+  --color-ink: #14201d;
+  --color-ink-soft: #53635d;
+  --color-line: #dce5e1;
+  --color-accent: #0f6b63;
+  --color-accent-deep: #0a4b46;
+  --color-accent-soft: #e1f0ed;
+  --color-amber: #9c6518;
+  --color-amber-soft: #f8eeda;
+  --color-info: #2b5f8a;
+  --color-info-soft: #e7f0f7;
 
   --shadow-card:
-    0 1px 2px rgba(23, 35, 31, 0.05), 0 24px 48px -32px rgba(23, 35, 31, 0.4);
+    0 1px 2px rgba(20, 32, 29, 0.04), 0 20px 40px -30px rgba(20, 32, 29, 0.35);
   --shadow-lift:
-    0 2px 4px rgba(23, 35, 31, 0.06), 0 32px 64px -36px rgba(23, 35, 31, 0.45);
+    0 2px 4px rgba(20, 32, 29, 0.05), 0 28px 56px -34px rgba(20, 32, 29, 0.4);
 }
 
 @layer base {
@@ -48,6 +50,12 @@
     outline: 2px solid var(--color-accent);
     outline-offset: 3px;
   }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
 }
 
 @layer components {
@@ -55,12 +63,12 @@
     background-image:
       radial-gradient(
         60rem 30rem at 8% -10%,
-        rgba(15, 95, 87, 0.12),
+        rgba(15, 107, 99, 0.1),
         transparent 65%
       ),
       radial-gradient(
         50rem 26rem at 100% 0%,
-        rgba(169, 104, 31, 0.1),
+        rgba(43, 95, 138, 0.08),
         transparent 60%
       );
   }
