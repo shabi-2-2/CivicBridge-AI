@@ -25,11 +25,19 @@ class Settings(BaseSettings):
     # Explicit origins only. No wildcard CORS.
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
-    # Phase 2 seam. Both stay None until a model is connected.
+    # Phase 2 seam. Both stay None until explicitly configured.
     gemini_api_key: str | None = None
     gemini_model: str | None = None
     prompt_version: str | None = None
+    gemini_timeout_seconds: float = 15.0
     demo_mode: bool = True
+
+    @field_validator("gemini_timeout_seconds")
+    @classmethod
+    def validate_gemini_timeout(cls, value: float) -> float:
+        if not 1.0 <= value <= 60.0:
+            raise ValueError("GEMINI_TIMEOUT_SECONDS must be between 1 and 60 seconds")
+        return value
 
     @field_validator("cors_origins")
     @classmethod

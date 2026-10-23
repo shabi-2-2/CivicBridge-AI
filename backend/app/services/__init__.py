@@ -1,1 +1,1 @@
-"""Application services. The Gemini analysis pipeline arrives in Phase 2."""
+"""Application services for extraction, evidence checks, and derived data."""

@@ -1,6 +1,6 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.schemas.health import HealthResponse
 
 router = APIRouter(tags=["system"])
@@ -10,10 +10,9 @@ router = APIRouter(tags=["system"])
     "/health",
     response_model=HealthResponse,
     summary="Service health",
-    description="Reports liveness and Phase 1 AI metadata. Requires no Gemini API key.",
+    description="Reports liveness and configured AI metadata. Requires no Gemini API key.",
 )
-def get_health() -> HealthResponse:
-    settings = get_settings()
+def get_health(settings: Settings = Depends(get_settings)) -> HealthResponse:
     return HealthResponse(
         status="ok",
         model=settings.gemini_model,
