@@ -115,6 +115,9 @@ export type AnalysisMeta = {
   generated_at: string
   needs_human_review: boolean
   disclaimer: string
+  duration_ms?: number | null
+  model_duration_ms?: number | null
+  cache_hit?: boolean
 }
 
 export type AnalysisResponse = {

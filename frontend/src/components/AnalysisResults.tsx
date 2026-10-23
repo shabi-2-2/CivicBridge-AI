@@ -480,7 +480,17 @@ export function AnalysisResults({
               {analysis.request_id}
             </dd>
           </div>
+          {analysis.meta.duration_ms !== undefined && analysis.meta.duration_ms !== null ? (
+            <div className="flex justify-between gap-2 sm:col-span-2">
+              <dt className="text-ink-soft">Processing time</dt>
+              <dd className="font-medium text-ink">
+                {analysis.meta.duration_ms} ms
+                {analysis.meta.cache_hit ? ' (cached)' : ''}
+              </dd>
+            </div>
+          ) : null}
         </dl>
+
       </details>
     </section>
   )

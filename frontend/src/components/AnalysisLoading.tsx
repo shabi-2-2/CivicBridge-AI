@@ -44,8 +44,7 @@ export function AnalysisLoading() {
               Structuring your complaint…
             </h2>
             <p className="mt-2 max-w-2xl text-sm leading-relaxed text-ink-soft">
-              Gemini is extracting the facts and checking the wording. This
-              usually takes 10–30 seconds. Keep this page open.
+              Extracting facts, quotes, and safety checks. Keep this page open.
             </p>
           </div>
         </div>

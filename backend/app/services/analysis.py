@@ -1,4 +1,5 @@
 import logging
+import time
 from datetime import datetime, timezone
 
 from pydantic import ValidationError
@@ -12,6 +13,7 @@ from app.schemas.analysis import (
     IssueExtraction,
     SCHEMA_VERSION,
 )
+from app.services.cache import AnalysisCache
 from app.services.derived import build_derived_data
 from app.services.emergency import EmergencyDetection, detect_emergency
 from app.services.evidence import validate_evidence
@@ -34,16 +36,49 @@ class AnalysisService:
         client: StructuredModelClient,
         model: str,
         prompt_version: str = PROMPT_VERSION,
+        cache: AnalysisCache | None = None,
     ) -> None:
         self._client = client
         self._model = model
         self._prompt_version = prompt_version
         self._schema = response_schema()
+        self._cache = cache if cache is not None else AnalysisCache()
+
+    @property
+    def cache(self) -> AnalysisCache:
+        return self._cache
 
     def analyze(self, request: AnalyzeRequest, request_id: str) -> AnalysisResponse:
-        user_input = build_user_input(request.text, request.location_hint)
-        analysis = self._extract_with_one_repair(user_input)
+        start_total = time.perf_counter()
+        cache_key = self._cache.compute_key(
+            request.text, request.location_hint, self._model, self._prompt_version
+        )
 
+        cached = self._cache.get(cache_key)
+        if cached is not None:
+            total_duration_ms = int((time.perf_counter() - start_total) * 1000)
+            logger.info(
+                "analysis cache_hit request_id=%s total_ms=%d",
+                request_id,
+                total_duration_ms,
+            )
+            return cached.model_copy(
+                update={
+                    "request_id": request_id,
+                    "meta": cached.meta.model_copy(
+                        update={
+                            "duration_ms": total_duration_ms,
+                            "model_duration_ms": 0,
+                            "cache_hit": True,
+                        }
+                    ),
+                }
+            )
+
+        user_input = build_user_input(request.text, request.location_hint)
+        analysis, model_duration_ms = self._extract_with_one_repair(user_input)
+
+        val_start = time.perf_counter()
         evidence = validate_evidence(
             analysis.fields, request.text, request.location_hint
         )
@@ -59,16 +94,10 @@ class AnalysisService:
         )
 
         issue = self._merge_emergency(analysis.issue, detection, derived.emergency.triggered)
+        validation_duration_ms = int((time.perf_counter() - val_start) * 1000)
+        total_duration_ms = int((time.perf_counter() - start_total) * 1000)
 
-        logger.info(
-            "analysis derived request_id=%s category=%s readiness=%s flags=%s",
-            request_id,
-            issue.category.value,
-            derived.readiness.score,
-            len(derived.review_flags),
-        )
-
-        return AnalysisResponse(
+        response = AnalysisResponse(
             schema_version=SCHEMA_VERSION,
             request_id=request_id,
             input_language=analysis.input_language,
@@ -85,30 +114,55 @@ class AnalysisService:
                 model=self._model,
                 prompt_version=self._prompt_version,
                 generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                duration_ms=total_duration_ms,
+                model_duration_ms=model_duration_ms,
+                cache_hit=False,
             ),
         )
 
-    def _extract_with_one_repair(self, user_input: str) -> GeminiAnalysis:
+        self._cache.put(cache_key, response)
+
+        logger.info(
+            "analysis cold_completed request_id=%s category=%s readiness=%s total_ms=%d model_ms=%d val_ms=%d",
+            request_id,
+            issue.category.value,
+            derived.readiness.score,
+            total_duration_ms,
+            model_duration_ms,
+            validation_duration_ms,
+        )
+
+        return response
+
+    def _extract_with_one_repair(self, user_input: str) -> tuple[GeminiAnalysis, int]:
+        model_start = time.perf_counter()
         raw = self._client.generate(
             system_instruction=SYSTEM_INSTRUCTION,
             user_input=user_input,
             schema=self._schema,
         )
+        model_duration_ms = int((time.perf_counter() - model_start) * 1000)
 
-        try:
-            return GeminiAnalysis.model_validate_json(raw)
-        except ValidationError as first_error:
-            logger.info("gemini output invalid; attempting single repair")
-            repair_input = build_repair_input(user_input, first_error, raw)
+        first_error: ValidationError | None = None
+        if raw and raw.strip():
+            try:
+                return GeminiAnalysis.model_validate_json(raw), model_duration_ms
+            except ValidationError as exc:
+                first_error = exc
 
+        logger.info("gemini output invalid or empty; attempting single repair")
+        repair_input = build_repair_input(user_input, first_error, raw or "")
+
+        repair_start = time.perf_counter()
         repaired = self._client.generate(
             system_instruction=SYSTEM_INSTRUCTION,
             user_input=repair_input,
             schema=self._schema,
         )
+        model_duration_ms += int((time.perf_counter() - repair_start) * 1000)
 
         try:
-            return GeminiAnalysis.model_validate_json(repaired)
+            return GeminiAnalysis.model_validate_json(repaired), model_duration_ms
         except ValidationError:
             logger.warning("gemini output invalid after repair attempt")
             raise GeminiInvalidOutput() from None

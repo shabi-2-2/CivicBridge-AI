@@ -240,6 +240,9 @@ class AnalysisMeta(StrictModel):
     generated_at: str
     needs_human_review: Literal[True] = True
     disclaimer: str = DISCLAIMER
+    duration_ms: int | None = None
+    model_duration_ms: int | None = None
+    cache_hit: bool = False
 
 
 class AnalysisResponse(StrictModel):

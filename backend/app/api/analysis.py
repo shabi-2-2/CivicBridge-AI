@@ -9,6 +9,7 @@ from app.core.errors import GeminiNotConfigured
 from app.schemas.analysis import AnalysisResponse, AnalyzeRequest, ErrorResponse
 from app.services.report import ReportResponse, ReportRequest
 from app.services.analysis import AnalysisService
+from app.services.cache import AnalysisCache
 from app.services.gemini import DEFAULT_MODEL, GeminiClient
 from app.services.prompt import PROMPT_VERSION
 from app.services.report import generate_report
@@ -16,6 +17,8 @@ from app.services.report import generate_report
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["analysis"])
+
+_shared_analysis_cache = AnalysisCache()
 
 
 def get_analysis_service(
@@ -35,6 +38,7 @@ def get_analysis_service(
         client=client,
         model=model,
         prompt_version=prompt_version,
+        cache=_shared_analysis_cache,
     )
 
 

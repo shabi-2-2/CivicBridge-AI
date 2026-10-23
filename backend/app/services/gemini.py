@@ -58,6 +58,16 @@ class GeminiClient:
     def model(self) -> str:
         return self._model
 
+    def _build_generation_config(self) -> dict[str, Any]:
+        config: dict[str, Any] = {
+            "temperature": 0.2,
+            "max_output_tokens": 1800,
+        }
+        # Models supporting minimal thinking level reduce extraction latency significantly
+        if "3.6" in self._model or "3.5" in self._model:
+            config["thinking_level"] = "minimal"
+        return config
+
     def generate(
         self,
         *,
@@ -65,6 +75,7 @@ class GeminiClient:
         user_input: str,
         schema: dict[str, Any],
     ) -> str:
+        config = self._build_generation_config()
         try:
             interaction = self._client.interactions.create(
                 model=self._model,
@@ -75,20 +86,33 @@ class GeminiClient:
                     "mime_type": "application/json",
                     "schema": schema,
                 },
-                generation_config={
-                    "temperature": 0.2,
-                    "max_output_tokens": 2600,
-                    "thinking_level": "low",
-                },
+                generation_config=config,
                 timeout=self._timeout_seconds,
             )
         except Exception as exc:  # mapped below; never logged with raw details
-            _raise_safe_provider_error(exc)
+            # Fallback if a specific model variant rejects thinking_level
+            if "thinking_level" in config and "thinking_level" in str(exc).lower():
+                config.pop("thinking_level", None)
+                try:
+                    interaction = self._client.interactions.create(
+                        model=self._model,
+                        system_instruction=system_instruction,
+                        input=user_input,
+                        response_format={
+                            "type": "text",
+                            "mime_type": "application/json",
+                            "schema": schema,
+                        },
+                        generation_config=config,
+                        timeout=self._timeout_seconds,
+                    )
+                except Exception as inner_exc:
+                    _raise_safe_provider_error(inner_exc)
+            else:
+                _raise_safe_provider_error(exc)
 
         output = getattr(interaction, "output_text", None)
         if not isinstance(output, str) or not output.strip():
-            # Empty output is treated as invalid structured output so the
-            # orchestrator can perform its single repair attempt.
             logger.warning("gemini returned no text; requesting repair")
             return ""
         return output
